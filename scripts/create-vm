@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Check if correct number of arguments is provided
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <VM_NAME> <MAC_ADDRESS> <IP_ADDRESS>"
+    echo "Example: $0 vm1 00:11:22:33:44:55 192.168.1.2/24"
+    exit 1
+fi
+
+# Assign CLI arguments to variables
+VM_NAME=$1
+MAC_ADDRESS=$2
+IP_ADDRESS=$3
+
+# Create network namespace
+ip netns add $VM_NAME
+
+# Create veth pair
+ip link add ${VM_NAME}-eth0 type veth peer name ${VM_NAME}-eth0-end
+
+# Move one end of veth pair into the namespace
+ip link set ${VM_NAME}-eth0 netns $VM_NAME
+
+# Set MAC address
+ip netns exec $VM_NAME ip link set ${VM_NAME}-eth0 address $MAC_ADDRESS
+
+# Set IP address
+ip netns exec $VM_NAME ip addr add $IP_ADDRESS dev ${VM_NAME}-eth0
+
+# Bring up the interfaces
+ip netns exec $VM_NAME ip link set ${VM_NAME}-eth0 up
+ip link set ${VM_NAME}-eth0-end up
+
+# Optional: Set up default route (uncomment if needed)
+# ip netns exec $VM_NAME ip route add default via <gateway_ip>
+
+echo "VM network setup complete for $VM_NAME"
+
+# to connect to the vswitch
+# echo "vm1-eth0-end" | sudo tee /sys/kernel/vswitch/remove_interface
