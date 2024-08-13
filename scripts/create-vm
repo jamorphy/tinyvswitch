@@ -37,4 +37,4 @@ ip link set ${VM_NAME}-eth0-end up
 echo "VM network setup complete for $VM_NAME"
 
 # to connect to the vswitch
-# echo "vm1-eth0-end" | sudo tee /sys/kernel/vswitch/remove_interface
+# echo "vm1-eth0-end" | sudo tee /sys/kernel/vswitch/add_interface

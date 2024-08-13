@@ -1,5 +1,5 @@
 #!/bin/sh
 
-ip link delete vm1-eth0-end
-ip netns delete vm1
+ip link delete vm3-eth0-end
+ip netns delete vm3
 # delete connection on the switch (sysfs write)
