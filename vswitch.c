@@ -29,37 +29,11 @@ struct vs {
 static struct vs *vswitch;
 static struct kobject *vs_kobj;
 
-void print_mac_table(struct vs *vswitch)
-{
-    struct mac_entry *entry;
-    int count = 0;
-    unsigned long flags;
-
-    pr_info("vswitch: Printing MAC table contents:\n");
-
-    spin_lock_irqsave(&vswitch->lock, flags);
-
-    list_for_each_entry(entry, &vswitch->mac_table, list) {
-        pr_info("vswitch: Entry %d: MAC %pM, Port ID: %d\n",
-                count++,
-                entry->mac,
-                entry->port ? entry->port->id : -1);
-
-        if (count > 1000) {  // Safety check to prevent infinite loops
-            pr_warn("vswitch: More than 1000 entries in MAC table. Stopping print.\n");
-            break;
-        }
-    }
-
-    spin_unlock_irqrestore(&vswitch->lock, flags);
-
-    if (count == 0) {
-        pr_info("vswitch: MAC table is empty.\n");
-    } else {
-        pr_info("vswitch: Total entries in MAC table: %d\n", count);
-    }
-}
-
+/*
+ * vs_port_find
+ *
+ * Finds the port on the switch that has associated with a net_device
+ */
 static struct vs_port* vs_port_find(struct vs *vswitch, struct net_device *dev)
 {
     struct vs_port *port;
@@ -87,8 +61,6 @@ static struct vs_port* vs_mac_lookup(struct vs *vswitch,
     struct mac_entry *entry;
     struct vs_port *port = NULL;
 
-    pr_info("vswitch: Looking up MAC in vs_mac_lookup\n");
-
     spin_lock(&vswitch->lock);
     list_for_each_entry(entry, &vswitch->mac_table, list) {
         if (memcmp(entry->mac, mac_addr, ETH_ALEN) == 0) {
@@ -103,8 +75,6 @@ static struct vs_port* vs_mac_lookup(struct vs *vswitch,
         }
     }
     spin_unlock(&vswitch->lock);
-
-    pr_info("vswitch: Finished looking up MAC\n");
 
     return port;
 }
@@ -196,7 +166,6 @@ static void vs_flood(struct vs *vswitch, struct sk_buff *skb, struct vs_port *sr
 
     list_for_each_entry(port, &vswitch->ports, list) {
         if (port != src_port) {
-            pr_info("Flooding port\n");
             nskb = skb_clone(skb, GFP_ATOMIC);
             if (nskb) {
                 if (vs_Tx(port, nskb) != 0) {
@@ -218,7 +187,7 @@ static rx_handler_result_t vs_Rx(struct sk_buff **pskb)
     struct ethhdr *eth;
     unsigned char *mac_src, *mac_dst;
     struct vs_port *rx_port, *tx_port;
-    
+
     // Ensure the packet is large enough to contain an Ethernet header
     if (skb->len < ETH_HLEN) {
         pr_err("vswitch: Packet too short to contain Ethernet header\n");
@@ -257,23 +226,14 @@ static rx_handler_result_t vs_Rx(struct sk_buff **pskb)
         vs_Tx(tx_port, skb);
     }
 
-    print_mac_table(vswitch);
-    // TODO: flood the switch if tx_port is not found, else forward to dst
-    
-    pr_info("vswitch: Rx on %s, length: %d\n", skb->dev->name, skb->len);
-    pr_info("vswitch: Src MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-            mac_src[0], mac_src[1], mac_src[2], mac_src[3], mac_src[4], mac_src[5]);
-    pr_info("vswitch: Dst MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-            mac_dst[0], mac_dst[1], mac_dst[2], mac_dst[3], mac_dst[4], mac_dst[5]);
-
-    // Drop the packet for now
+    // Dispatch finished
     kfree_skb(skb);
     return RX_HANDLER_CONSUMED;
 }
 
 /*
  * vs_add_port
- * 
+ *
  * Adds a port to the switch-wide ports list
  */
 static int vs_add_port(struct net_device * dev) {
@@ -292,7 +252,6 @@ static int vs_add_port(struct net_device * dev) {
     port->dev = dev;
     port->id = vswitch->num_ports + 1;
 
-    pr_info("vswitch: Registering rx handler for %s\n", dev->name);
     err = netdev_rx_handler_register(dev, vs_Rx, NULL);
     if (err) {
         pr_err("vswitch: Error registering rx handler for %s\n", dev->name);
@@ -300,7 +259,6 @@ static int vs_add_port(struct net_device * dev) {
         return err;
     }
 
-    pr_info("vswitch: Adding port to list\n");
     spin_lock_irqsave(&vswitch->lock, flags);
     vswitch->num_ports++;
     port->id = vswitch->num_ports;
@@ -308,6 +266,47 @@ static int vs_add_port(struct net_device * dev) {
     spin_unlock_irqrestore(&vswitch->lock, flags);
 
     pr_info("vswitch: Added port for device %s\n", dev->name);
+    return 0;
+}
+
+/*
+ * vs_remove_port
+ *
+ * Removes a port from the switch-wide ports list
+ */
+static int vs_remove_port(struct vs *vswitch, const char *ifname)
+{
+    struct vs_port *port, *tmp;
+    struct net_device *dev;
+    int found = 0;
+
+    dev = dev_get_by_name(&init_net, ifname);
+    if (!dev) {
+        pr_err("vswitch: Interface %s not found\n", ifname);
+        return -ENODEV;
+    }
+
+    spin_lock(&vswitch->lock);
+    list_for_each_entry_safe(port, tmp, &vswitch->ports, list) {
+        if (port->dev == dev) {
+            netdev_rx_handler_unregister(dev);
+            list_del(&port->list);
+            kfree(port);
+            vswitch->num_ports--;
+            found = 1;
+            break;
+        }
+    }
+    spin_unlock(&vswitch->lock);
+
+    dev_put(dev);
+
+    if (!found) {
+        pr_err("vswitch: Port for interface %s not found in switch\n", ifname);
+        return -ENOENT;
+    }
+
+    pr_info("vswitch: Removed port for interface %s\n", ifname);
     return 0;
 }
 
@@ -323,8 +322,6 @@ static ssize_t vs_add_interface(struct device *dev,
         pr_err("vswitch: Invalid interface name\n");
         return -EINVAL;
     }
-
-    pr_info("vswitch: Looking for interface: %s\n", ifname);
 
     netdev = dev_get_by_name(&init_net, ifname);
     if (!netdev) {
@@ -344,12 +341,33 @@ static ssize_t vs_add_interface(struct device *dev,
     return count;
 }
 
+static ssize_t vs_remove_interface(struct device *dev,
+                                   struct device_attribute *attr,
+                                   const char *buf, size_t count)
+{
+    char ifname[IFNAMSIZ];
+    int ret;
+
+    if (sscanf(buf, "%15s", ifname) != 1) {
+        pr_err("vswitch: Invalid interface name\n");
+        return -EINVAL;
+    }
+
+    ret = vs_remove_port(vswitch, ifname);
+    if (ret)
+        return ret;
+
+    return count;
+}
+
 // sysfs attributes
-// exposes `add_interface` file, calls `vs_add_interface` when writing to file
+// exposes files to userspace for adding and removing ports
 static DEVICE_ATTR(add_interface, S_IWUSR, NULL, vs_add_interface);
+static DEVICE_ATTR(remove_interface, S_IWUSR, NULL, vs_remove_interface);
 
 static struct attribute *vs_attrs[] = {
     &dev_attr_add_interface.attr,
+    &dev_attr_remove_interface.attr,
     NULL
 };
 
@@ -393,7 +411,6 @@ static void __exit vs_exit(void) {
     printk(KERN_INFO "Destroying vswitch.\n");
 
     sysfs_remove_group(vs_kobj, &vs_attr_group);
-
     kobject_put(vs_kobj);
 
     spin_lock_irqsave(&vswitch->lock, flags);
@@ -405,7 +422,7 @@ static void __exit vs_exit(void) {
         kfree(port);
     }
     spin_unlock_irqrestore(&vswitch->lock, flags);
-    
+
     kfree(vswitch);
     pr_info("vswitch: Unloaded\n");
 }
