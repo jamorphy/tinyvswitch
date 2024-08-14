@@ -1,6 +1,8 @@
 # tinyvswitch
 
-A minimal virtual switch implementation, works on anything with a `net_device`.
+A virtual switch implementation, works on anything with a `net_device`.
+
+Tested on `5.15.0-118-generic`
 
 ## Features
 - Unicast/broadcast packet forwarding
