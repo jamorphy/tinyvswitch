@@ -31,10 +31,9 @@ ip netns exec $VM_NAME ip addr add $IP_ADDRESS dev ${VM_NAME}-eth0
 ip netns exec $VM_NAME ip link set ${VM_NAME}-eth0 up
 ip link set ${VM_NAME}-eth0-end up
 
-# Optional: Set up default route (uncomment if needed)
-# ip netns exec $VM_NAME ip route add default via <gateway_ip>
-
 echo "VM network setup complete for $VM_NAME"
 
 # to connect to the vswitch
 # echo "vm1-eth0-end" | sudo tee /sys/kernel/vswitch/add_interface
+
+

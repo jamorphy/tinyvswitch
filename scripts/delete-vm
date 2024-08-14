@@ -1,5 +1,26 @@
-#!/bin/sh
+#!/bin/bash
 
-ip link delete vm3-eth0-end
-ip netns delete vm3
-# delete connection on the switch (sysfs write)
+# Check if correct number of arguments is provided
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <VM_NAME>"
+    echo "Example: $0 vm1"
+    exit 1
+fi
+
+# Assign CLI argument to variable
+VM_NAME=$1
+
+# Check if the namespace exists
+if ! ip netns list | grep -q "$VM_NAME"; then
+    echo "Error: Network namespace $VM_NAME does not exist."
+    exit 1
+fi
+
+# Delete the veth pair
+# This will automatically remove both ends of the pair
+ip link delete ${VM_NAME}-eth0-end 2>/dev/null
+
+# Delete the network namespace
+ip netns delete $VM_NAME
+
+echo "VM network cleanup complete for $VM_NAME"
