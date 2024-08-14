@@ -146,7 +146,7 @@ if __name__ == "__main__":
     project_root = os.path.dirname(script_dir)
     os.chdir(project_root)
     
-    #test_vm1_ping_vm2()
+    test_vm1_ping_vm2()
     test_vm1_vm2_vm3_ping()    
     # TODO: mac table tests
     # TODO: Arp tests
